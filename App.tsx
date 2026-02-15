@@ -18,7 +18,9 @@ import {
   Calculator, 
   Copy, 
   Share2, 
-  RefreshCcw 
+  RefreshCcw,
+  Truck,
+  ArrowRight
 } from 'lucide-react';
 
 // Shell Logo Component (SVG)
@@ -60,7 +62,7 @@ const TANKS: TankDef[] = [
 
 const App: React.FC = () => {
   // View Mode State
-  const [viewMode, setViewMode] = useState<'calculator' | 'report'>('calculator');
+  const [viewMode, setViewMode] = useState<'calculator' | 'report' | 'reception'>('calculator');
 
   // Calculator State
   const [selectedFuel, setSelectedFuel] = useState<FuelType | null>(null);
@@ -72,6 +74,13 @@ const App: React.FC = () => {
   // Report State
   const [reportInputs, setReportInputs] = useState<Record<string, string>>({});
   const [generatedReport, setGeneratedReport] = useState<string | null>(null);
+
+  // Reception State
+  const [receptionTankCode, setReceptionTankCode] = useState<string | null>(null);
+  const [receptionInitial, setReceptionInitial] = useState<string>('');
+  const [receptionFinal, setReceptionFinal] = useState<string>('');
+  const [receptionResult, setReceptionResult] = useState<{initialVol: number, finalVol: number, receivedVol: number, tank: TankDef} | null>(null);
+  const [receptionError, setReceptionError] = useState<string | null>(null);
 
   const currentFuelConfig = useMemo(() => 
     fuels.find(f => f.id === selectedFuel), 
@@ -132,6 +141,7 @@ const App: React.FC = () => {
     }, 400);
   };
 
+  // --- REPORT LOGIC ---
   const handleReportInputChange = (code: string, value: string) => {
     setReportInputs(prev => ({ ...prev, [code]: value }));
   };
@@ -141,12 +151,11 @@ const App: React.FC = () => {
     const formattedDate = date.toLocaleDateString('pt-BR');
     const formattedTime = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-    let reportText = `⛽ *FECHAMENTO DE TURNO - SHELL*\n`;
-    reportText += `📅 Data: ${formattedDate} - ${formattedTime}\n`;
+    let reportText = `⛽ *CONFERÊNCIA REALIZADA ÀS ${formattedTime} DO DIA ${formattedDate}*\n`;
     reportText += `------------------------------\n`;
     reportText += `TANQUE   | RÉGUA | LITROS\n`;
     
-    let totalLitros = 0;
+    // Removed total calculation variable
 
     TANKS.forEach(tank => {
       const hStr = reportInputs[tank.code] || '';
@@ -157,7 +166,7 @@ const App: React.FC = () => {
         const vol = getVolume(tank.fuelId, h);
         if (vol !== null) {
           volStr = vol.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); // Intentionally 0 decimals for compact report per user image
-          totalLitros += vol;
+          // Removed accumulation
         } else {
             volStr = "Erro";
         }
@@ -173,10 +182,87 @@ const App: React.FC = () => {
     });
 
     reportText += `------------------------------\n`;
-    reportText += `*Total Estimado:* ${totalLitros.toLocaleString('pt-BR')} L\n`;
+    // Removed Total Estimated line
 
     setGeneratedReport(reportText);
   };
+
+  // --- RECEPTION LOGIC ---
+  const handleCalculateReception = () => {
+    setReceptionError(null);
+    setReceptionResult(null);
+
+    if (!receptionTankCode) {
+      setReceptionError("Selecione um tanque.");
+      return;
+    }
+    const tank = TANKS.find(t => t.code === receptionTankCode);
+    if (!tank) return;
+
+    const h1 = parseInt(receptionInitial, 10);
+    const h2 = parseInt(receptionFinal, 10);
+
+    if (isNaN(h1) || isNaN(h2)) {
+      setReceptionError("Preencha as réguas inicial e final.");
+      return;
+    }
+    if (h1 < 0 || h2 < 0) {
+      setReceptionError("Valores não podem ser negativos.");
+      return;
+    }
+    if (h1 > 260 || h2 > 260) {
+      setReceptionError("Régua excede limite (260cm).");
+      return;
+    }
+
+    const v1 = getVolume(tank.fuelId, h1);
+    const v2 = getVolume(tank.fuelId, h2);
+
+    if (v1 === null || v2 === null) {
+      setReceptionError("Erro ao calcular volume na tabela.");
+      return;
+    }
+
+    setReceptionResult({
+      initialVol: v1,
+      finalVol: v2,
+      receivedVol: v2 - v1,
+      tank
+    });
+  };
+
+  const getReceptionReceipt = () => {
+    if (!receptionResult) return '';
+    const date = new Date();
+    const formattedDate = date.toLocaleDateString('pt-BR');
+    const formattedTime = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    
+    return `🚛 *RECEBIMENTO DE COMBUSTÍVEL*\n` +
+           `📅 ${formattedDate} - ${formattedTime}\n` +
+           `Produto: ${receptionResult.tank.shortName} (${receptionResult.tank.code})\n` +
+           `------------------------------\n` +
+           `Régua Inicial: ${receptionInitial} cm (${receptionResult.initialVol.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} L)\n` +
+           `Régua Final:   ${receptionFinal} cm (${receptionResult.finalVol.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} L)\n` +
+           `------------------------------\n` +
+           `*ENTRADA: ${receptionResult.receivedVol.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} LITROS*`;
+  };
+
+  const shareReception = () => {
+    const text = getReceptionReceipt();
+    if (text) {
+      const encoded = encodeURIComponent(text);
+      window.open(`https://wa.me/?text=${encoded}`, '_blank');
+    }
+  };
+
+  const copyReception = () => {
+    const text = getReceptionReceipt();
+    if (text) {
+      navigator.clipboard.writeText(text);
+      alert("Comprovante copiado!");
+    }
+  };
+
 
   const copyToClipboard = () => {
     if (generatedReport) {
@@ -228,20 +314,27 @@ const App: React.FC = () => {
           </div>
 
           {/* Navigation Tabs */}
-          <div className="flex p-1 bg-slate-100 rounded-xl">
+          <div className="flex p-1 bg-slate-100 rounded-xl overflow-x-auto">
             <button 
               onClick={() => setViewMode('calculator')}
-              className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wide flex items-center justify-center gap-2 transition-all ${viewMode === 'calculator' ? 'bg-white text-[#DD1D21] shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+              className={`flex-1 py-2 px-2 rounded-lg text-xs font-bold uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all whitespace-nowrap ${viewMode === 'calculator' ? 'bg-white text-[#DD1D21] shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
             >
               <Calculator className="w-4 h-4" />
-              Calculadora
+              Calc
             </button>
             <button 
               onClick={() => setViewMode('report')}
-              className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wide flex items-center justify-center gap-2 transition-all ${viewMode === 'report' ? 'bg-white text-[#DD1D21] shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+              className={`flex-1 py-2 px-2 rounded-lg text-xs font-bold uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all whitespace-nowrap ${viewMode === 'report' ? 'bg-white text-[#DD1D21] shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
             >
               <FileText className="w-4 h-4" />
               Relatório
+            </button>
+            <button 
+              onClick={() => setViewMode('reception')}
+              className={`flex-1 py-2 px-2 rounded-lg text-xs font-bold uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all whitespace-nowrap ${viewMode === 'reception' ? 'bg-white text-[#DD1D21] shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+            >
+              <Truck className="w-4 h-4" />
+              Recebimento
             </button>
           </div>
         </div>
@@ -444,6 +537,144 @@ const App: React.FC = () => {
                   </button>
                 </div>
               </div>
+            )}
+          </div>
+        )}
+
+        {/* --- VIEW: RECEPTION --- */}
+        {viewMode === 'reception' && (
+          <div className="p-6 space-y-6 flex-grow overflow-y-auto">
+            {/* Reception Tank Selection */}
+            <div className="space-y-2">
+               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                <Truck className="w-3 h-3 text-[#DD1D21]" />
+                Selecione o Tanque Recebido
+               </label>
+               <div className="grid grid-cols-2 gap-2">
+                 {TANKS.map((tank) => (
+                   <button
+                     key={tank.code}
+                     onClick={() => {
+                        setReceptionTankCode(tank.code);
+                        setReceptionResult(null);
+                        setReceptionError(null);
+                     }}
+                     className={`
+                       py-2 px-2 rounded-xl text-xs font-bold transition-all duration-200 border-2
+                       flex flex-col items-center justify-center gap-0.5 h-14 relative overflow-hidden
+                       ${receptionTankCode === tank.code 
+                         ? `border-[#DD1D21] bg-red-50 text-[#DD1D21] shadow-md` 
+                         : 'bg-white border-slate-100 text-slate-600 hover:border-red-100 hover:bg-slate-50'}
+                       ${tank.code === 'T5DS1010' ? 'col-span-2' : ''}
+                     `}
+                   >
+                     <span className="text-[10px] opacity-70">{tank.code}</span>
+                     <span className={`text-center leading-tight z-10 ${receptionTankCode === tank.code ? 'text-[#DD1D21]' : 'text-slate-800'}`}>{tank.shortName}</span>
+                   </button>
+                 ))}
+               </div>
+            </div>
+
+            {/* Inputs Initial/Final */}
+            <div className="grid grid-cols-2 gap-4 relative">
+                <div className="space-y-2">
+                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Régua Inicial</label>
+                   <div className="relative">
+                      <input 
+                        type="number" 
+                        inputMode="numeric"
+                        placeholder="0"
+                        value={receptionInitial}
+                        onChange={(e) => setReceptionInitial(e.target.value)}
+                        className="w-full bg-slate-50 border-2 border-slate-200 text-slate-800 text-xl font-black py-3 px-3 rounded-xl focus:outline-none focus:border-[#DD1D21] text-center"
+                      />
+                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-bold">cm</span>
+                   </div>
+                </div>
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 mt-3 text-slate-300">
+                    <ArrowRight className="w-6 h-6" />
+                </div>
+                <div className="space-y-2">
+                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Régua Final</label>
+                   <div className="relative">
+                      <input 
+                        type="number" 
+                        inputMode="numeric"
+                        placeholder="0"
+                        value={receptionFinal}
+                        onChange={(e) => setReceptionFinal(e.target.value)}
+                        className="w-full bg-slate-50 border-2 border-slate-200 text-slate-800 text-xl font-black py-3 px-3 rounded-xl focus:outline-none focus:border-[#DD1D21] text-center"
+                      />
+                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-bold">cm</span>
+                   </div>
+                </div>
+            </div>
+
+            {/* Calculate Button */}
+            <button
+              onClick={handleCalculateReception}
+              disabled={!receptionTankCode || !receptionInitial || !receptionFinal}
+              className={`
+                w-full py-3 rounded-xl font-bold text-base flex items-center justify-center gap-2 shadow-xl shadow-red-900/10 transition-all duration-200
+                ${!receptionTankCode || !receptionInitial || !receptionFinal
+                  ? 'bg-slate-200 text-slate-400 cursor-not-allowed' 
+                  : 'bg-[#DD1D21] text-white hover:bg-[#b0161a] active:scale-[0.98]'}
+              `}
+            >
+              Calcular Recebimento
+            </button>
+            
+            {/* Results Area */}
+            {receptionError && (
+              <div className="flex items-center gap-3 text-[#DD1D21] bg-red-50 px-5 py-4 rounded-xl border border-red-100 animate-[shake_0.5s_ease-in-out]">
+                <AlertCircle className="w-6 h-6 flex-shrink-0" />
+                <span className="font-semibold text-sm leading-tight">{receptionError}</span>
+              </div>
+            )}
+
+            {receptionResult && (
+               <div className="animate-[fadeIn_0.5s_ease-out] space-y-4">
+                  <div className="bg-neutral-900 text-white rounded-2xl py-6 px-4 relative overflow-hidden group shadow-2xl border border-red-900">
+                    <div className={`absolute inset-0 opacity-10 bg-gradient-to-tr from-[#DD1D21] via-[#FBCE07] to-[#DD1D21]`} />
+                    <div className="relative z-10 flex flex-col items-center">
+                      <span className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">Combustível Recebido</span>
+                      <div className="flex items-baseline justify-center gap-1">
+                        <span className="text-5xl font-black tracking-tighter text-white drop-shadow-md">
+                          {receptionResult.receivedVol.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                        </span>
+                        <span className="text-xl text-[#FBCE07] font-bold">L</span>
+                      </div>
+                      <div className="flex items-center gap-4 mt-4 text-[10px] font-mono opacity-80">
+                         <div className="flex flex-col items-center">
+                            <span className="text-slate-500">INICIAL</span>
+                            <span className="font-bold">{receptionResult.initialVol.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} L</span>
+                         </div>
+                         <div className="w-px h-6 bg-white/20"></div>
+                         <div className="flex flex-col items-center">
+                            <span className="text-slate-500">FINAL</span>
+                            <span className="font-bold">{receptionResult.finalVol.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} L</span>
+                         </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      onClick={copyReception}
+                      className="py-3 rounded-xl font-bold text-slate-700 bg-white border-2 border-slate-200 hover:border-slate-300 flex items-center justify-center gap-2 transition-all active:scale-[0.98] text-xs"
+                    >
+                      <Copy className="w-4 h-4" />
+                      Copiar
+                    </button>
+                    <button
+                      onClick={shareReception}
+                      className="py-3 rounded-xl font-bold text-white bg-[#25D366] hover:bg-[#20bd5a] flex items-center justify-center gap-2 shadow-lg shadow-green-200 transition-all active:scale-[0.98] text-xs"
+                    >
+                      <Share2 className="w-4 h-4" />
+                      WhatsApp
+                    </button>
+                  </div>
+               </div>
             )}
           </div>
         )}
